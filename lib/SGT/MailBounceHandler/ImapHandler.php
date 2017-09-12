@@ -269,6 +269,53 @@ class ImapHandler extends Handler
             $this->cwsDebug->titleH3('Msg #' . $mailNo, CwsDebug::VERBOSE_REPORT);
             $header = @imap_fetchheader($this->mailboxHandler, $mailNo);
             $body = @imap_body($this->mailboxHandler, $mailNo);
+
+            $structure = imap_fetchstructure($this->mailboxHandler, $mailNo);
+            $attachments = array();
+
+            if(isset($structure->parts) && count($structure->parts)) {
+                for($i = 0; $i < count($structure->parts); $i++) {
+
+                    $attachments[$i] = array(
+                        'isAttachment' => false,
+                        'fileName' => '',
+                        'name' => '',
+                        'attachment' => ''
+                    );
+
+                    if($structure->parts[$i]->ifdparameters) {
+                        foreach($structure->parts[$i]->dparameters as $object) {
+                            if(strtolower($object->attribute) == 'filename') {
+                                $attachments[$i]['isAttachment'] = true;
+                                $attachments[$i]['fileName'] = $object->value;
+                            }
+                        }
+                    }
+
+                    if($structure->parts[$i]->ifparameters) {
+                        foreach($structure->parts[$i]->parameters as $object) {
+                            if(strtolower($object->attribute) == 'name') {
+                                $attachments[$i]['isAttachment'] = true;
+                                $attachments[$i]['name'] = $object->value;
+                            }
+                        }
+                    }
+
+                    if($attachments[$i]['isAttachment']) {
+                        $attachments[$i]['attachment'] = imap_fetchbody($this->mailboxHandler, $mailNo, $i + 1);
+                        if ($structure->parts[$i]->encoding == 3) { // 3 = BASE64
+                            $attachments[$i]['attachment'] = base64_decode($attachments[$i]['attachment']);
+                        } elseif ($structure->parts[$i]->encoding == 4) { // 4 = QUOTED-PRINTABLE
+                            $attachments[$i]['attachment'] = quoted_printable_decode($attachments[$i]['attachment']);
+                        }
+                    }
+                }
+            }
+            foreach($attachments as $attachment){
+                if($attachment['isAttachment'] && !empty($attachment['attachment'])) {
+                    $body .= $attachment['attachment'];
+                }
+            }
             $phpMbhResult->addMail($this->processMailParsing($mailNo, $header . '\r\n\r\n' . $body));
         }
     }
